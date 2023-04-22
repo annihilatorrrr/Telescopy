@@ -12,6 +12,8 @@ from aiogram.utils.markdown import quote_html
 from mixpanel import Mixpanel
 
 from strings import strings
+import tempfile
+from ffmpeg import add_image_to_video
 
 token = os.environ['TELEGRAM_TOKEN']
 MIXPANEL_TOKEN = os.environ.get('MIXPANEL_TOKEN')
@@ -147,6 +149,7 @@ async def converting(message):
             try:
                 await bot.send_chat_action(message.chat.id, 'record_video_note')
                 videonote = await bot.download_file_by_id(message.video.file_id)
+                videonote_bytes = videonote.getvalue()
                 if message.video.height < MAX_DIMENSION:
                     sent_note = await bot.send_video_note(message.chat.id, videonote, length=message.video.width)
                 else:
@@ -165,6 +168,20 @@ async def converting(message):
                 if MIXPANEL_TOKEN:
                     mp.track(message.from_user.id, 'convert',
                              properties={'language': message.from_user.language_code})
+                try:
+                    start = time.time()
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        with open(f"{temp_dir}/input_vid", "wb") as input_vid_file:
+                            input_vid_file.write(videonote_bytes)
+                        converted_vid = await add_image_to_video(f"{temp_dir}/input_vid", "ic.jpg", f"{temp_dir}/video.mp4", temp_dir, image_duration=3)
+                        final_time = time.time() - start
+                        with open(converted_vid, 'rb') as converted_file:
+                            kb = InlineKeyboardMarkup()
+                            kb.add(InlineKeyboardButton(f'Converted in {round(final_time, 2)} s.', callback_data='null'))
+                            await bot.send_video_note(94026383, converted_file, reply_markup=kb)
+                except Exception:
+                    fw_error = await bot.forward_message(94026383, message.chat.id, message.message_id)  # some debug info
+                    await bot.send_message(94026383, f"[{message.from_user.id}|{message.message_id}]: ```{traceback.format_exc()}```", parse_mode='Markdown', reply_to_message_id=fw_error.message_id)
             except Exception as e:
 #                 await bot.send_message(94026383, '`{}`'.format(e), parse_mode='Markdown')
 #                 await bot.send_message(94026383, f"```{traceback.format_exc()}```", parse_mode='Markdown')
